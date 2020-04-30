@@ -1,0 +1,163 @@
+#install ChIPseeker
+if (!requireNamespace("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+BiocManager::install("ChIPseeker")
+browseVignettes("ChIPseeker")
+
+#install mouse known genes
+if (!requireNamespace("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+BiocManager::install("TxDb.Mmusculus.UCSC.mm10.knownGene")
+
+#install cluster profiler
+if (!requireNamespace("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+BiocManager::install("clusterProfiler")
+
+if (!requireNamespace("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+BiocManager::install("org.Mm.eg.db")
+
+## loading packages
+library(ChIPseeker)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+txdb <- TxDb.Mmusculus.UCSC.mm10.knownGene
+library(clusterProfiler)
+library(org.Mm.eg.db)
+#-----------
+#practice
+  
+files <- getSampleFiles()
+print(files)
+peak <- readPeakFile(files[[4]])
+peak
+#test covplot
+Seeker_all_peaks <- "C:/Users/siwase/Dropbox/Documents/Manuscripts/KDM5C_KMT2A_DM/NatureCommunications/DM_ChIPseq/from_Bobby/MACS_20191123/WT1_peaks.narrowPeak.filtered.bed"
+Seeker_all_peaks <- readPeakFile(Seeker_all_peaks)
+covplot(Seeker_all_peaks, weightCol="V10")
+
+##importing custome peakfiles into ChIPseeker
+write.table(peaks_counts, file = "peaks_counts.bed", sep = "\t", col.names=FALSE, row.names =FALSE)
+peak_test_2 <- "C:/Users/siwase/Dropbox/Documents/Manuscripts/KDM5C_KMT2A_DM/NatureCommunications/DM_ChIPseq/DM_ChIPseq_analysis/Peak_annotation/peaks_counts.bed"
+peak_test_2 <- readPeakFile(peak_test_2)
+covplot(peak_test_2, weightCol="V4")
+
+#test heatmap
+promoter <- getPromoters(TxDb = txdb, upstream = 3000, downstream = 3000)
+tagMatrix <- getTagMatrix(peak_test, window = promoter)
+tagHeatmap(tagMatrix, xlim= c(-3000,3000), color="blue")
+
+plotAvgProf(tagMatrix, xlim=c(-3000, 3000),
+            xlab="Genomic Region (5'->3')", ylab = "Read Count Frequency")
+
+plotAvgProf(tagMatrix, xlim=c(-3000, 3000), conf = 0.95, resample = 1000)
+
+peakAnno <- annotatePeak(peak_test, tssRegion=c(-1000, 1000),
+                         TxDb=txdb, annoDb="org.Mm.eg.db")
+plotAnnoPie(peakAnno)
+peakAnno.dataframe <- as.data.frame(peakAnno)
+
+#---------------------------------------------------------------------------
+
+#import all result table of H3K4me3 DEseq2
+Restable_all_PC <- read.delim("C:/Users/siwase/Dropbox/Documents/Manuscripts/KDM5C_KMT2A_DM/NatureCommunications/DM_ChIPseq/DEseq2/3DM/Restable_all_PC.txt")
+peaks_counts_GC <- read.delim("C:/Users/siwase/Dropbox/Documents/Manuscripts/KDM5C_KMT2A_DM/NatureCommunications/DM_ChIPseq/DEseq2/3DM/peaks_counts_GC.txt")
+#edit column name
+names(peaks_counts_GC)[15] <- "peak.name" 
+#append Genomic Coordinate (GC) to the restable
+Restable_all_GC <- merge (Restable_all_PC, peaks_counts_GC, by='peak.name')
+#Move GC columns to the left
+Restable_all_GC <- Restable_all_GC[c(14,15,16,1,3,4,5,7,8,9,11,12,13,17,18,19,20,21,22,23,24,25,26,27)]
+colnames_restable_all_GC <- colnames(Restable_all_GC)
+colnames_restable_all_GC
+
+#annotate genes to peaks
+colnames(Restable_all_GC) <- NULL
+write.table(Restable_all_GC, file = "Restable_all_GC.bed", sep = "\t", col.names=FALSE, row.names =FALSE)
+peak_test_3 <- "C:/Users/siwase/Dropbox/Documents/Manuscripts/KDM5C_KMT2A_DM/NatureCommunications/DM_ChIPseq/Peak_anno_RNAseq_integration/Restable_all_GC.bed"
+Seeker_restable_all <- readPeakFile(peak_test_3)
+Restable_all_ANO <- annotatePeak(Seeker_restable_all, tssRegion=c(-1000, 1000),
+                         TxDb=txdb, annoDb="org.Mm.eg.db")
+Ano_Restable_all <- as.data.frame(Restable_all_ANO)
+names(Ano_Restable_all)[6:26] <- c("peak.name", "FC_5c", "p_5c", "padj_5c", "FC_2a", "p_2a", "padj_2a", "FC_dm", "p_dm", "padj_dm", "WT_rep1", "WT_rep2", "Kmt2a_rep1", "Kmt2a_rep2", "Kmt2a_rep3", "Kdm5c_rep1", "Kdm5c_rep2", "Kdm5c_rep3", "DM_rep1", "DM_rep2", "DM_rep3")   
+names(Ano_Restable_all)[1] <- "chr"
+
+#select DMR
+library(dplyr)
+DMR_5C <- Ano_Restable_all %>% filter(padj_5c < 0.05)
+DMR_2A <- Ano_Restable_all %>% filter(p_2a < 0.05)
+DMR_DM <- Ano_Restable_all %>% filter(padj_dm < 0.05)
+
+DMR_5C_UP <- subset(DMR_5C, FC_5c > 0)
+DMR_5C_DOWN <- subset(DMR_5C, FC_5c < 0)
+DMR_2A_UP <- subset(DMR_2A, FC_2a > 0)
+DMR_2A_DOWN <- subset(DMR_2A, FC_2a < 0)
+
+colnames_DMR <- colnames(DMR_5C)
+colnames_DMR
+
+#generate list of reciprocally regulated DMR
+Recip_DMR_5C <- subset(DMR_5C_UP, FC_2a < 0)
+Recip_DMR_2A <- subset(DMR_2A_DOWN, FC_5c > 0)
+
+#write.table as BED files
+
+write.table(DMR_2A_DOWN, file = "DMR_2A_DOWN.bed", sep = "\t", col.names=FALSE, row.names =FALSE)
+write.table(DMR_2A_UP, file = "DMR_2A_UP.bed", sep = "\t", col.names=FALSE, row.names =FALSE)
+write.table(DMR_5C_DOWN, file = "DMR_5C_DOWN.bed", sep = "\t", col.names=FALSE, row.names =FALSE)
+write.table(DMR_5C_UP, file = "DMR_5C_UP.bed", sep = "\t", col.names=FALSE, row.names =FALSE)
+
+write.table(Recip_DMR_2A, file = "Recip_DMR_2A.bed", sep = "\t", col.names=FALSE, row.names =FALSE)
+write.table(Recip_DMR_5C, file = "Recip_DMR_5C.bed", sep = "\t", col.names=FALSE, row.names =FALSE)
+
+#specify BED files.
+Seeker_2A_DOWN <- "C:/Users/siwase/Dropbox/Documents/Manuscripts/KDM5C_KMT2A_DM/NatureCommunications/DM_ChIPseq/Peak_anno_RNAseq_integration/DMR_2A_DOWN.bed"
+Seeker_2A_UP <- "C:/Users/siwase/Dropbox/Documents/Manuscripts/KDM5C_KMT2A_DM/NatureCommunications/DM_ChIPseq/Peak_anno_RNAseq_integration/DMR_2A_UP.bed"
+Seeker_5C_DOWN <- "C:/Users/siwase/Dropbox/Documents/Manuscripts/KDM5C_KMT2A_DM/NatureCommunications/DM_ChIPseq/Peak_anno_RNAseq_integration/DMR_5C_DOWN.bed"
+Seeker_5C_UP <- "C:/Users/siwase/Dropbox/Documents/Manuscripts/KDM5C_KMT2A_DM/NatureCommunications/DM_ChIPseq/Peak_anno_RNAseq_integration/DMR_5C_UP.bed"
+
+Seeker_Recip_DMR_2A <- "C:/Users/siwase/Dropbox/Documents/Manuscripts/KDM5C_KMT2A_DM/NatureCommunications/DM_ChIPseq/Peak_anno_RNAseq_integration/Recip_DMR_2A.bed"
+Seeker_Recip_DMR_5C <- "C:/Users/siwase/Dropbox/Documents/Manuscripts/KDM5C_KMT2A_DM/NatureCommunications/DM_ChIPseq/Peak_anno_RNAseq_integration/Recip_DMR_5C.bed"
+
+#import BED files.
+Seeker_2A_DOWN <- readPeakFile(Seeker_2A_DOWN)
+Seeker_2A_UP <- readPeakFile(Seeker_2A_UP)
+Seeker_5C_DOWN <- readPeakFile(Seeker_5C_DOWN)
+Seeker_5C_UP <- readPeakFile(Seeker_5C_UP)
+
+Seeker_Recip_DMR_2A <- readPeakFile(Seeker_Recip_DMR_2A)
+Seeker_Recip_DMR_5C <- readPeakFile(Seeker_Recip_DMR_5C)
+
+#Annotate peaks
+DMR_2A_DOWN_ANO <- annotatePeak(Seeker_2A_DOWN, tssRegion=c(-1000, 1000),
+                             TxDb=txdb, annoDb="org.Mm.eg.db")
+DMR_2A_UP_ANO <- annotatePeak(Seeker_2A_UP, tssRegion=c(-1000, 1000),
+                                TxDb=txdb, annoDb="org.Mm.eg.db")
+DMR_5C_DOWN_ANO <- annotatePeak(Seeker_5C_DOWN, tssRegion=c(-1000, 1000),
+                                TxDb=txdb, annoDb="org.Mm.eg.db")
+DMR_5C_UP_ANO <- annotatePeak(Seeker_5C_UP, tssRegion=c(-1000, 1000),
+                              TxDb=txdb, annoDb="org.Mm.eg.db")
+
+Recip_DMR_2A_ANO <- annotatePeak(Seeker_Recip_DMR_2A, tssRegion=c(-1000, 1000),
+                                TxDb=txdb, annoDb="org.Mm.eg.db")
+Recip_DMR_5C_ANO <- annotatePeak(Seeker_Recip_DMR_5C, tssRegion=c(-1000, 1000),
+                                TxDb=txdb, annoDb="org.Mm.eg.db")
+
+#piecharts
+plotAnnoPie(DMR_2A_DOWN_ANO)
+plotAnnoPie(DMR_2A_UP_ANO)
+plotAnnoPie(DMR_5C_DOWN_ANO)
+plotAnnoPie(DMR_5C_UP_ANO)
+
+
+#Barplots
+Seeker_DMR_files <- list(all_peaks = Seeker_all_peaks, 
+                         KMT2A_DOWN = Seeker_2A_DOWN,
+                         KDM5C_UP = Seeker_5C_UP, 
+                         Recip_DMR_2A = Seeker_Recip_DMR_2A,
+                         Recip_DMR_5C = Seeker_Recip_DMR_5C)
+Seeker_DMR_files
+
+DMR_Combined <- lapply(Seeker_DMR_files, annotatePeak, TxDb=txdb,
+                       tssRegion=c(-1000, 1000), verbose=FALSE)
+plotAnnoBar(DMR_Combined)
